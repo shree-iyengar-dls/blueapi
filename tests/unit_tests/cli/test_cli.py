@@ -1144,6 +1144,26 @@ def test_login_with_unauthenticated_server(
     assert result.exit_code == 0
 
 
+@responses.activate
+def test_invalid_json(
+    runner: CliRunner,
+    config_with_auth: str,
+    mock_authn_server: responses.RequestsMock,
+):
+    response = responses.add(
+        responses.GET,
+        "http://localhost:8000/config/oidc",
+        body="blah blah",
+        status=200,
+    )
+
+    result = runner.invoke(main, ["-c", config_with_auth, "login"])
+
+    assert response.call_count == 1
+    assert "Response does not contain a valid JSON object\n" == result.output
+    assert result.exit_code == 0
+
+
 def test_logout_success(
     runner: CliRunner,
     config_with_auth: str,
@@ -1390,3 +1410,14 @@ def test_config_schema(
 def test_task_parameter_type(value, result):
     t = ParametersType()
     assert t.convert(value, None, None) == result
+
+
+@pytest.mark.parametrize(
+    "flag,level",
+    [("--verbose", "DEBUG"), ("--quiet", "ERROR"), ("-v", "DEBUG"), ("-q", "ERROR")],
+)
+def test_log_level_override(flag: str, level: str, runner: CliRunner):
+    with patch("blueapi.log.logging") as mock_log:
+        runner.invoke(main, [flag])
+        mock_log.getLogger().setLevel.assert_called_once_with(level)
+        mock_log.StreamHandler().setLevel.assert_called_once_with(level)

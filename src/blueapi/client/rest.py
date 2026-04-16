@@ -1,3 +1,5 @@
+import json
+import logging
 from collections.abc import Callable, Mapping
 from typing import Any, Literal, TypeVar
 
@@ -10,6 +12,7 @@ from observability_utils.tracing import (
 )
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
+from blueapi import __version__
 from blueapi.config import RestConfig
 from blueapi.service.authentication import JWTAuth, SessionManager
 from blueapi.service.model import (
@@ -32,25 +35,44 @@ T = TypeVar("T")
 
 TRACER = get_tracer("rest")
 
+LOGGER = logging.getLogger(__name__)
+
 
 class BlueskyRequestError(Exception):
+    """Error response from the blueapi server.(422,450,500)"""
+
     def __init__(self, code: int | None = None, message: str = "") -> None:
         super().__init__(code, message)
 
 
-class UnauthorisedAccessError(BlueskyRequestError):
-    pass
+class UnauthorisedAccessError(Exception):
+    """Request was rejected due to missing or invalid credentials (401/403)."""
+
+    def __init__(self, code: int | None = None, message: str = "") -> None:
+        super().__init__(code, message)
 
 
 class BlueskyRemoteControlError(Exception):
+    """Failure communicating with the blueapi server (e.g. connection refused)."""
+
+    pass
+
+
+class NonJsonResponseError(Exception):
+    """Server returned a response that could not be parsed as JSON."""
+
     pass
 
 
 class NotFoundError(BlueskyRequestError):
+    """Requested something that couldn't be found (404)."""
+
     pass
 
 
 class UnknownPlanError(BlueskyRequestError):
+    """ "Plan '{name}' was not recognised" """
+
     pass
 
 
@@ -113,7 +135,14 @@ def _exception(response: requests.Response) -> Exception | None:
     elif code == 404:
         return NotFoundError(code, response.text)
     else:
-        return BlueskyRemoteControlError(response.text)
+        try:
+            body = _response_json(response)
+            message = (body.get("detail") if isinstance(body, dict) else None) or (
+                response.text
+            )
+        except NonJsonResponseError:
+            message = response.text
+        return BlueskyRemoteControlError(code, message)
 
 
 def _create_task_exceptions(response: requests.Response) -> Exception | None:
@@ -126,7 +155,7 @@ def _create_task_exceptions(response: requests.Response) -> Exception | None:
         return UnknownPlanError(code, response.text)
     elif code == 422:
         try:
-            content = response.json()
+            content = _response_json(response)
             return InvalidParametersError(
                 TypeAdapter(list[ParameterError]).validate_python(
                     content.get("detail", [])
@@ -138,6 +167,18 @@ def _create_task_exceptions(response: requests.Response) -> Exception | None:
             return BlueskyRequestError(code, response.text)
     else:
         return BlueskyRequestError(code, response.text)
+
+
+def _response_json(response: requests.Response) -> Any:
+    try:
+        return response.json()
+    except json.decoder.JSONDecodeError as exc:
+        LOGGER.debug(
+            f"Invalid json response from <{response.request.url}>: <{response.content}>"
+        )
+        raise NonJsonResponseError(
+            "Response does not contain a valid JSON object"
+        ) from exc
 
 
 class BlueapiRestClient:
@@ -277,7 +318,20 @@ class BlueapiRestClient:
             raise exception
         if response.status_code == status.HTTP_204_NO_CONTENT:
             raise NoContentError(target_type)
-        deserialized = TypeAdapter(target_type).validate_python(response.json())
+        if (server_version := response.headers.get("x-blueapi-version")) is not None:
+            from packaging.version import Version
+
+            if (server_version := Version(server_version).base_version) != (
+                client_version := Version(__version__).base_version
+            ):
+                LOGGER.warning(
+                    f"Version mismatch: Blueapi server version is {server_version} "
+                    f"but client version is {client_version}. "
+                    f"Some features may not work as expected."
+                )
+        deserialized = TypeAdapter(target_type).validate_python(
+            _response_json(response)
+        )
         return deserialized
 
 
