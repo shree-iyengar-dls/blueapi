@@ -9,7 +9,7 @@ import pytest
 from bluesky.protocols import Stoppable
 from fastapi import status
 from fastapi.testclient import TestClient
-from httpx import Headers
+from httpx2 import Headers
 from pydantic import BaseModel, ValidationError
 from pydantic_core import InitErrorDetails
 from super_state_machine.errors import TransitionError
@@ -411,9 +411,9 @@ def test_get_tasks_by_status(mock_runner: Mock, client: TestClient) -> None:
     }
 
 
-def test_get_tasks_by_status_invalid(client: TestClient) -> None:
+def test_get_tasks_by_invalid_status(client: TestClient) -> None:
     response = client.get("/tasks", params={"task_status": "AN_INVALID_STATUS"})
-    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
 def test_delete_submitted_task(mock_runner: Mock, client: TestClient) -> None:
