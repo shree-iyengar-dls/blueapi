@@ -138,7 +138,7 @@ version_name = os.environ.get("VERSION_NAME", "local")
 html_theme = "pydata_sphinx_theme"
 html_theme_options = {
     "switcher": {
-        "json_url": "https://ORG.github.io/REPO/switcher.json",
+        "json_url": "https://shree-iyengar-dls.github.io/blueapi/switcher.json",
         "version_match": version_name,
     },
     "navbar_end": ["version-switcher", "theme-switcher", "navbar-icon-links"],
@@ -146,7 +146,7 @@ html_theme_options = {
     "check_switcher": False,
 }
 github_repo = "blueapi"
-github_user = "DiamondLightSource"
+github_user = "shree-iyengar-dls"
 switcher_json = f"https://{github_user}.github.io/{github_repo}/switcher.json"
 switcher_exists = requests.get(switcher_json).ok
 if not switcher_exists:
